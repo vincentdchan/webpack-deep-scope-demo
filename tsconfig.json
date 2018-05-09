@@ -3,9 +3,11 @@
     "module": "commonjs",
     "target": "es5",
     "sourceMap": true,
-    "jsx": "react"
+    "jsx": "react",
+    "lib": ["es5", "es6", "dom", "es2017"]
   },
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "webpack-deep-scope-analysis-plugin"
   ]
 }
