@@ -3,7 +3,7 @@ const path = require('path');
 module.exports = {
   entry: path.join(__dirname, '/app.tsx'),
   output: {
-    filename: 'app.js',
+    filename: 'dist/app.js',
     path: __dirname,
   },
   module: {
@@ -22,7 +22,9 @@ module.exports = {
         use: [
           {
             loader: 'file-loader',
-            options: {}
+            options: {
+              outputPath: 'dist',
+            }
           }
         ]
       },
