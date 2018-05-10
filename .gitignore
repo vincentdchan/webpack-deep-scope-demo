@@ -2,3 +2,5 @@
 .DS_Store
 /testData.json
 /yarn-error.log
+/app.js
+/app.js.map
