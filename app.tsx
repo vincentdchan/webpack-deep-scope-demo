@@ -150,14 +150,18 @@ class App extends React.Component<{}, IAppState> {
   };
 
   private analyseCode(name: string, code: string) {
+    const comments = [];
     const ast = acorn.parse(code, {
       ranges: true,
       locations: true,
       ecmaVersion: 2017,
       sourceType: "module",
+      onComments: comments,
     });
     this.moduleAnalyser = new ModuleAnalyser(name, null);
-    this.moduleAnalyser.analyze(ast);
+    this.moduleAnalyser.analyze(ast, {
+      comments,
+    });
     const moduleScope = this.moduleAnalyser.moduleScope;
     const exportManager = moduleScope.exportManager;
     this.setState({
