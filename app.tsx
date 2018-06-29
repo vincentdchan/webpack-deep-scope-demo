@@ -156,7 +156,7 @@ class App extends React.Component<{}, IAppState> {
       locations: true,
       ecmaVersion: 2017,
       sourceType: "module",
-      onComments: comments,
+      onComment: comments,
     });
     this.moduleAnalyser = new ModuleAnalyser(name, null);
     this.moduleAnalyser.analyze(ast, {
