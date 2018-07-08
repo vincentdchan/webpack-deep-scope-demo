@@ -165,7 +165,7 @@ class App extends React.Component<{}, IAppState> {
     const moduleScope = this.moduleAnalyser.moduleScope;
     const exportManager = moduleScope.exportManager;
     this.setState({
-      exportVariables: exportManager.localIds.map(item => ({
+      exportVariables: exportManager.localVariables.map(item => ({
         name: item.exportName,
         isUsed: false,
       })),
