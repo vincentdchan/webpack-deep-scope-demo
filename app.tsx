@@ -65,6 +65,7 @@ const TableContainer = styled.div`
   padding-right: 12px;
   padding-left: 22px;
   margin-top: 8px;
+  overflow: scroll;
 `
 
 const Link = styled.a`
@@ -134,6 +135,10 @@ class App extends React.Component<{}, IAppState> {
     this.resize();
     this.codeMirror = document.querySelector('.CodeMirror');
     window.addEventListener('resize', this.handleResize);
+
+    this.onFixtureSelected({
+      item: selectItems[0].items[0],
+    });
   }
 
   public componentWillUnmount() {
@@ -165,28 +170,27 @@ class App extends React.Component<{}, IAppState> {
     const moduleScope = this.moduleAnalyser.moduleScope;
     const exportManager = moduleScope.exportManager;
     this.setState({
-      exportVariables: exportManager.localIds.map(item => ({
+      exportVariables: exportManager.localVariables.map(item => ({
         name: item.exportName,
         isUsed: false,
       })),
     });
   }
 
-  private onUpdateCode = (value: string) => {
-    this.setState({
-      codeContent: value,
-    });
-  }
-
   private generateTable() {
     if (!this.moduleAnalyser) return null;
     const {
-      exportVariables
+      exportVariables,
+      windowHeight,
     } = this.state;
     const usedExports = exportVariables.filter(item => item.isUsed).map(item => item.name);
     const tableData = Object.entries(this.moduleAnalyser.generateExportInfo(usedExports));
     return (
-      <TableContainer>
+      <TableContainer
+        style={{
+          height: `${windowHeight - 54}px`,
+        }}
+      >
         <DynamicTableStateless
           head={{
             cells: [{
