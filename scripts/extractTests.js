@@ -4,8 +4,9 @@ const path = require('path');
 const fixturesPath = path.join(
   __dirname,
   '..',
-  'node_modules',
-  'webpack-deep-scope-analysis',
+  'webpack-deep-scope-analysis-plugin',
+  'packages',
+  'deep-scope-analysis',
   'tests',
   'fixtures',
 );
