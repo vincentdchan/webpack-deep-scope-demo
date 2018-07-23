@@ -14,9 +14,4 @@ module.exports = merge(common, {
     }),
     new WebpackDeepScopeAnalysisPlugin(),
   ],
-  optimization: {
-    usedExports: true,
-    // minimize: false,
-    sideEffects: false,
-  }
 });
