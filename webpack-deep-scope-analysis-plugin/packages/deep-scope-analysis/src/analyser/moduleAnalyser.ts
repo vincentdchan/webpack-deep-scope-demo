@@ -9,7 +9,7 @@ import { IComment } from "./comment";
 import { ChildScopesTraverser, RefsToModuleExtractor, PureDeclaratorTraverser } from "./childScopesTraverser";
 import { RootDeclaration, RootDeclarationType } from "./rootDeclaration";
 import rootDeclarationResolver from "./rootDeclarationResolver";
-import { ExportVariableType, LocalExportVariable, ExternalType } from "../exportManager";
+import { ExportVariableType, ExternalType } from "../exportManager";
 
 export interface Dictionary<T> {
   [index: string]: T;
@@ -24,11 +24,6 @@ Object.defineProperty(Array.prototype, "flatMap", {
   },
   enumerable: false,
 });
-
-interface ResultType {
-  sourceName: string;
-  moduleName: string;
-}
 
 export class ModuleAnalyser {
   public readonly extractorMap: Map<string, RefsToModuleExtractor> = new Map();
@@ -116,7 +111,10 @@ export class ModuleAnalyser {
       ["FunctionDeclaration", "ArrowFunctionExpression"].indexOf(node.type) >= 0;
 
     if (exportManager.exportDefaultDeclaration) {
-      if (isFunction(exportManager.exportDefaultDeclaration)) {
+      if (
+        isFunction(exportManager.exportDefaultDeclaration) ||
+        exportManager.exportDefaultDeclaration.type === "ClassDeclaration"
+      ) {
         const declaration = exportManager.exportDefaultDeclaration;
         declarations.push(
           new RootDeclaration(
@@ -214,7 +212,9 @@ export class ModuleAnalyser {
       const exportVar = exportManager.exportsMap.get(usedExport);
 
       if (typeof exportVar === "undefined") {
-        throw new Error(`${usedExport} is not an export variable`);
+        // FIX: export from another module
+        // throw new Error(`${usedExport} is not an export variable`);
+        continue;
       }
 
       switch (exportVar.type) {

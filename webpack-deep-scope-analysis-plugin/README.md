@@ -1,6 +1,7 @@
 # Webpack Deep Scope Analysis Plugin
 
 ![](https://travis-ci.org/vincentdchan/webpack-deep-scope-analysis-plugin.svg?branch=master)
+[![npm version](https://badge.fury.io/js/webpack-deep-scope-plugin.svg)](https://badge.fury.io/js/webpack-deep-scope-plugin)
 
 A webpack plugin for deep scope analysis.
 It's a project of [GSoC 2018](https://summerofcode.withgoogle.com/organizations/4657420148670464/#projects) webpack organization.
@@ -42,11 +43,17 @@ module.export = {
 
 The plugin will analyze the scope and determine if the variables should be imported automatically.
 
+## Articles
+
+[Medium](https://medium.com/webpack/better-tree-shaking-with-deep-scope-analysis-a0b788c0ce77)
+
+[中文版](https://vincentdchan.github.io/2018/05/better-tree-shaking-with-scope-analysis/)
+
 ## Pure Annotation
 
 As you know, it's difficult for ECMAScript to analyze the side effects. Hence, `PURE` annotation is introduced, which is from [Uglify](https://github.com/mishoo/UglifyJS2):
 
-> A function call is marked as "pure" if a comment annotation /\*@__PURE__\*/ or /\*#__PURE__\*/ immediately precedes the call. For example: /\*@__PURE__\*/foo();
+> A function call is marked as "pure" if a comment annotation /\*@\_\_PURE\_\_\*/ or /\*#\_\_PURE\_\_\*/ immediately precedes the call. For example: /\*@\_\_PURE\_\_\*/foo();
 
 # About Escope
 
