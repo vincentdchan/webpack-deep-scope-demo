@@ -6,13 +6,24 @@ import * as ESTree from "estree";
 import { Scope, ModuleScope } from "../scope";
 import { Reference } from "../reference";
 import { IComment } from "./comment";
-import { ChildScopesTraverser, RefsToModuleExtractor, PureDeclaratorTraverser } from "./childScopesTraverser";
-import { RootDeclaration, RootDeclarationType } from "./rootDeclaration";
-import rootDeclarationResolver from "./rootDeclarationResolver";
+import { ChildScopesTraverser, RefsToModuleExtractor } from "./childScopesTraverser";
 import { ExportVariableType, ExternalType } from "../exportManager";
+import { Variable } from "../variable";
+import {
+  VirtualScope,
+  VScopeContentType,
+  VariableVirtualScope,
+  ExportDefaultVirtualScope,
+  VirtualScopeType,
+} from "./virtualScope";
 
 export interface Dictionary<T> {
   [index: string]: T;
+}
+
+export interface ExportInfo {
+  sourceName: string;
+  moduleName: string;
 }
 
 // flatMap polyfill
@@ -27,7 +38,10 @@ Object.defineProperty(Array.prototype, "flatMap", {
 
 export class ModuleAnalyser {
   public readonly extractorMap: Map<string, RefsToModuleExtractor> = new Map();
-  public readonly internalUsedScopeIds: Set<string> = new Set();
+
+  public readonly virtualScopeMap: WeakMap<Variable, VirtualScope> = new WeakMap();
+  public readonly virtualScopes: VirtualScope[] = [];
+  public readonly initVirtualScopes: VirtualScope[] = [];
 
   private comments: IComment[] = [];
 
@@ -69,7 +83,114 @@ export class ModuleAnalyser {
     );
     this.scopeManager = scopeManager;
 
-    this.findAllReferencesForModuleVariables();
+    const pureCommentEndsSet = this.processComments();
+    const { moduleScope } = this;
+    moduleScope.variables.forEach(variable => {
+      let virtualScope: VirtualScope;
+
+      if (moduleScope.importManager.idMap.get(variable.name)) {
+        virtualScope = new VariableVirtualScope(
+          VScopeContentType.Import,
+          variable,
+        );
+      } else {
+        const def = variable.defs[0];
+        switch (def.node.type) {
+          case "FunctionDeclaration":
+            virtualScope = new VariableVirtualScope(
+              VScopeContentType.FunctionDeclaration,
+              variable,
+            );
+            break;
+          case "ClassDeclaration":
+            virtualScope = new VariableVirtualScope(
+              VScopeContentType.ClassDeclaration,
+              variable,
+            );
+            break;
+          case "VariableDeclarator":
+            let isChildrenDependent = true;
+            if (def.node.init) {
+              const { init } = def.node;
+
+              if (["let", "var", "const"].indexOf(def.kind!) < 0) {
+                throw new TypeError("def.kind muse be in ['let', 'var', 'const']");
+              }
+
+              if (def.kind === "let" || def.kind === "var") {
+                for (let i = 1; i < variable.references.length; i++) {
+                  const ref = variable.references[i];
+                  if (ref.flag === Reference.WRITE || ref.flag === Reference.RW) {
+                    isChildrenDependent = false;
+                    break;
+                  }
+                }
+              }
+
+              let scopeType = VScopeContentType.Undefined;
+              switch (init.type) {
+                case "ClassExpression":
+                  scopeType = VScopeContentType.ClassExpression;
+                  break;
+                case "FunctionExpression":
+                  scopeType = VScopeContentType.FunctionExpression;
+                  break;
+                case "ArrowFunctionExpression":
+                  scopeType = VScopeContentType.ArrowFunction;
+                  break;
+                case "CallExpression":
+                  if (pureCommentEndsSet.has(init.range![0])) {
+                    scopeType = VScopeContentType.PureFunctionCall;
+                  } else {
+                    scopeType = VScopeContentType.NormalFunctionCall;
+                  }
+              }
+              virtualScope = new VariableVirtualScope(
+                scopeType,
+                variable,
+                isChildrenDependent,
+              );
+            } else {
+              virtualScope = new VariableVirtualScope(
+                VScopeContentType.Undefined,
+                variable,
+                false,
+              );
+            }
+            break;
+          default:
+            virtualScope = new VariableVirtualScope(
+              VScopeContentType.Undefined,
+              variable,
+              false,
+            );
+        }
+      }
+      this.virtualScopeMap.set(variable, virtualScope);
+      this.virtualScopes.push(virtualScope);
+    });
+
+    const visitedSet: WeakSet<Scope> = new WeakSet();
+
+    this.handleExportDefaultDeclaration();
+
+    this.virtualScopes.forEach(
+      vs => vs.findAllReferencesToVirtualScope(
+        visitedSet,
+        scopeManager,
+        this.virtualScopeMap,
+      ),
+    );
+
+    const independentScopes = moduleScope.childScopes.filter(
+      item => !visitedSet.has(item),
+    );
+    this.traverseIndependentScopes(independentScopes);
+
+    // find references that is not in export specifiers
+    this.handleNotExportReferences(
+      moduleScope.references.filter(ref => !ref.isExport),
+    );
   }
 
   /**
@@ -86,127 +207,48 @@ export class ModuleAnalyser {
     return pureCommentEndsSet;
   }
 
-  private get moduleScopeDeclarations() {
-    const moduleScope = this.moduleScope;
-    const declarations: RootDeclaration[] = [];
-
-    const pureCommentEndsSet = this.processComments();
-    const resolver = rootDeclarationResolver(declarations, this.scopeManager!, pureCommentEndsSet);
-
-    for (let i = 0; i < moduleScope.variables.length; i++) {
-      const variable = moduleScope.variables[i];
-      resolver(variable);
-    }
-
-    // handle export declaration
-    this.handleExportDefaultDeclaration(declarations);
-    return declarations;
-  }
-
-  private handleExportDefaultDeclaration(declarations: RootDeclaration[]) {
+  private handleExportDefaultDeclaration() {
     const moduleScope = this.moduleScope;
     const { exportManager } = moduleScope;
 
-    const isFunction = (node: ESTree.Node) =>
-      ["FunctionDeclaration", "ArrowFunctionExpression"].indexOf(node.type) >= 0;
-
     if (exportManager.exportDefaultDeclaration) {
-      if (
-        isFunction(exportManager.exportDefaultDeclaration) ||
-        exportManager.exportDefaultDeclaration.type === "ClassDeclaration"
-      ) {
-        const declaration = exportManager.exportDefaultDeclaration;
-        declarations.push(
-          new RootDeclaration(
-            RootDeclarationType.Function,
-            "default",
-            declaration,
-            this.scopeManager!.__nodeToScope.get(declaration)!,
-          ),
-        );
-      } else if (exportManager.exportDefaultDeclaration.type === "Identifier") {
-        const id = exportManager.exportDefaultDeclaration as ESTree.Identifier;
-        const idName = id.name;
-        const variable = moduleScope.set.get(idName)!;
-        declarations.push(
-          new RootDeclaration(
-            RootDeclarationType.Function,
-            "default",
-            id,
-            this.scopeManager!.__nodeToScope.get(variable.defs[0].node)!,
-          ),
-        );
+      let vsType: VScopeContentType;
+      switch (exportManager.exportDefaultDeclaration.type) {
+        case "FunctionDeclaration":
+          vsType = VScopeContentType.FunctionDeclaration;
+          break;
+        case "ArrowFunctionExpression":
+          vsType = VScopeContentType.ArrowFunction;
+          break;
+        case "ClassDeclaration":
+          vsType = VScopeContentType.ClassDeclaration;
+          break;
+        case "ClassExpression":
+          vsType = VScopeContentType.ClassExpression;
+          break;
+        case "Identifier":
+          vsType = VScopeContentType.Reference;
+          break;
+        default:
+          return;
       }
+      this.virtualScopes.push(
+        new ExportDefaultVirtualScope(
+          vsType,
+          exportManager.exportDefaultDeclaration,
+          true,
+        ),
+      );
     }
 
   }
 
-  private findAllReferencesForModuleVariables() {
-    const moduleScope = this.moduleScope;
-    const declarations = this.moduleScopeDeclarations;
-
-    // deep scope analysis of all child scopes
-    const visitedSet = new WeakSet();
-    const pureIdentifiersSet: WeakSet<ESTree.Identifier> = new WeakSet();
-    this.findAllReferencesToModuleScope(declarations, pureIdentifiersSet, visitedSet);
-
-    const independentScopes = moduleScope.childScopes.filter(
-      item => !visitedSet.has(item),
-    );
-    this.traverseIndependentScopes(independentScopes);
-
-    // find references that is not in export specifiers
-    this.handleNotExportReferences(
-      moduleScope.references.filter(ref => !ref.isExport),
-      pureIdentifiersSet,
-    );
-  }
-
-  /**
-   * traverse scopes
-   * find references to module scope
-   * and tag all relevant scopes
-   */
-  private findAllReferencesToModuleScope = (
-    decls: RootDeclaration[],
-    pureIdentifiersSet: WeakSet<ESTree.Identifier>,
-    visitedSet: WeakSet<Scope>,
-  ) =>
-    decls.forEach(decl => {
-      if (!decl.scopes) return;
-      switch (decl.targetType) {
-        case RootDeclarationType.PureVariable:
-          const traverser = new PureDeclaratorTraverser(
-            decl.node as ESTree.VariableDeclarator,
-            this.moduleScope,
-          );
-          traverser.ids.forEach(id => pureIdentifiersSet.add(id));
-          traverser.relevantScopes.forEach(scope => visitedSet.add(scope));
-          this.extractorMap.set(decl.name, traverser);
-          break;
-        default:
-          decl.scopes.forEach(scope => {
-            visitedSet.add(scope);
-            this.extractorMap.set(decl.name, new ChildScopesTraverser(
-              scope,
-              this.moduleScope.importManager,
-            ));
-          });
-          break;
-      }
-    })
-
   public generateExportInfo(usedExports: string[]) {
-    const { importManager, exportManager } = this.moduleScope;
+    const { exportManager } = this.moduleScope;
 
-    const resultList = importManager.ids
-      .filter(item => item.mustBeImported)
-      .map(item => ({
-        sourceName: item.sourceName,
-        moduleName: item.moduleName,
-      }));
+    const resultList: ExportInfo[] = [];
 
-    const moduleScopeIds = [...this.internalUsedScopeIds];
+    const moduleScopeIds = [];
     for (let i = 0; i < usedExports.length; i++) {
       const usedExport = usedExports[i];
       const exportVar = exportManager.exportsMap.get(usedExport);
@@ -234,32 +276,40 @@ export class ModuleAnalyser {
       }
     }
 
-    const visitedExtractorSet = new WeakSet<RefsToModuleExtractor>();
+    const visitedVScope = new WeakSet<VirtualScope>();
 
-    const traverseExtractors = (extractor: RefsToModuleExtractor) => {
-      if (visitedExtractorSet.has(extractor)) return;
-      visitedExtractorSet.add(extractor);
+    const traverseVirtualScope = (vs: VirtualScope) => {
+      if (visitedVScope.has(vs)) return;
+      visitedVScope.add(vs);
 
-      extractor.refsToModule.forEach(([name, info]) => {
-        if (info !== null) {
+      if (vs.type === VirtualScopeType.Variable) {
+        const varVScope = vs as VariableVirtualScope;
+        if (vs.contentType === VScopeContentType.Import) {
+          const name = varVScope.variable.name;
+          const importInfo = this.moduleScope.importManager.idMap.get(name)!;
           resultList.push({
-            sourceName: info.sourceName,
-            moduleName: info.moduleName,
+            sourceName: importInfo.sourceName,
+            moduleName: importInfo.moduleName,
           });
         }
-
-        if (this.extractorMap.has(name)) {
-          traverseExtractors(this.extractorMap.get(name)!);
-        }
-      });
-    };
-
-    // find all related scopes
-    for (const [funName, traverser] of this.extractorMap) {
-      if (moduleScopeIds.indexOf(funName) >= 0) {
-        traverseExtractors(traverser);
       }
-    }
+
+      for (const child of vs.children) {
+        traverseVirtualScope(child);
+      }
+    };
+    this.initVirtualScopes.forEach(traverseVirtualScope);
+    moduleScopeIds.forEach(id => {
+      if (id === "default") {
+        // FIXME: improve efficiency
+        const defaultVs = this.virtualScopes.filter(vs => vs.type === VirtualScopeType.Default);
+        defaultVs.forEach(vs => traverseVirtualScope(vs));
+      } else {
+        const variable = this.moduleScope.set.get(id)!;
+        const vs = this.virtualScopeMap.get(variable)!;
+        traverseVirtualScope(vs);
+      }
+    });
 
     const resultMap: Dictionary<Set<string>> = {};
 
@@ -291,32 +341,45 @@ export class ModuleAnalyser {
         this.moduleScope.importManager,
       );
       traverser.refsToModule.forEach(([ref, info]) => {
-        if (this.extractorMap.has(ref)) {
-          this.internalUsedScopeIds.add(ref);
-        } else if (info !== null) {
+        const variable = this.moduleScope.set.get(ref)!;
+        const vs = this.virtualScopeMap.get(variable)!;
+        this.initVirtualScopes.push(vs);
+        if (info !== null) {
           info.mustBeImported = true;
         }
       });
     }
   }
 
-  private handleNotExportReferences = (
-    refs: Reference[],
-    pureIdentifiersSet: WeakSet<ESTree.Identifier>,
-  ) => {
+  private handleNotExportReferences = (refs: Reference[]) => {
     const moduleScopeRefs = refs.filter(
       ref => ref.resolved && ref.resolved.scope.type === "module",
     );
 
+    const pureVScopes = this.virtualScopes.filter(
+      vs => vs.contentType === VScopeContentType.PureFunctionCall,
+    );
+
+    /**
+     * judge if node is in the range
+     */
+    const nodeContains = (node: any, [start, end]: [number, number]) => {
+      return node.start >= start && node.end <= end;
+    };
+
     moduleScopeRefs.forEach(ref => {
-      if (pureIdentifiersSet.has(ref.identifier)) return;
-      const resolvedName = ref.resolved!.name;
-      const importId = this.moduleScope.importManager.idMap.get(resolvedName);
-      const extractor = this.extractorMap.get(resolvedName);
-      if (importId) {
-        importId.mustBeImported = true;
-      } else if (extractor && !ref.init) {
-        this.internalUsedScopeIds.add(ref.identifier.name);
+      for (const vs of pureVScopes) {
+        if (vs instanceof VariableVirtualScope) {
+          const range = vs.pureRange!;
+          if (nodeContains(ref.identifier, range)) {
+            return;
+          }
+        }
+      }
+      const resolvedName = ref.resolved!;
+      const vs = this.virtualScopeMap.get(resolvedName)!;
+      if (!ref.init) {
+        this.initVirtualScopes.push(vs);
       }
     });
   }
