@@ -11,7 +11,7 @@ import {Controlled as CodeMirror} from 'react-codemirror2';
 import SingleSelect from '@atlaskit/single-select';
 import 'codemirror/mode/javascript/javascript';
 import 'codemirror/lib/codemirror.css';
-import { ModuleAnalyser } from 'webpack-deep-scope-analysis';
+import { ModuleAnalyser } from 'deep-scope-analyser';
 import * as acorn from 'acorn';
 
 const data = require('./testData.json');

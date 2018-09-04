@@ -55,6 +55,38 @@ As you know, it's difficult for ECMAScript to analyze the side effects. Hence, `
 
 > A function call is marked as "pure" if a comment annotation /\*@\_\_PURE\_\_\*/ or /\*#\_\_PURE\_\_\*/ immediately precedes the call. For example: /\*@\_\_PURE\_\_\*/foo();
 
+# Changelog
+
+### v1.5.4
+
+ - Fix [#7](https://github.com/vincentdchan/webpack-deep-scope-analysis-plugin/issues/7): `import * from 'xxx'` syntax
+
+### v1.5.3
+
+ - Fix [#5](https://github.com/vincentdchan/webpack-deep-scope-analysis-plugin/issues/5)
+
+### v1.5.2
+
+ - Improve performance and code quality
+
+### v1.5.0
+
+ - Introduce `VirtualScope` to simulate module variable
+
+### v1.4.0
+
+ - Fix #4
+ - Publish
+
+# Contributing
+
+Use `lerna` to build and test:
+```sh
+$ lerna run build
+$ lerna run tslint
+$ lerna run test
+```
+
 # About Escope
 
 Now the `src/` includes a Typescript version of [escope](https://github.com/estools/escope),

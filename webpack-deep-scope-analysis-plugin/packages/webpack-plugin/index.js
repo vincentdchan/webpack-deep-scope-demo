@@ -1,11 +1,11 @@
-const { ModuleAnalyser } = require("webpack-deep-scope-analysis");
+const { ModuleAnalyser } = require("deep-scope-analyser");
 // const version = require("./package.json").version;
 
 const pluginName = "WebpackDeepScopeAnalysisPlugin";
 
 class WebpackDeepScopeAnalysisPlugin {
   constructor() {
-    this.moduleMap = new Map();
+    this.moduleMap = new WeakMap();
   }
 
   apply(compiler) {
@@ -17,7 +17,10 @@ class WebpackDeepScopeAnalysisPlugin {
           pluginName,
           (depRef, dep, module) => {
             if (dep.type === "harmony import specifier") {
-              const moduleScopeAnalyser = this.moduleMap.get(module.resource);
+              const moduleScopeAnalyser = this.moduleMap.get(module);
+              if (typeof moduleScopeAnalyser === "undefined") {
+                return depRef;
+              }
               let { usedExports } = dep.originModule;
 
               if (usedExports === false) usedExports = [];
@@ -31,7 +34,9 @@ class WebpackDeepScopeAnalysisPlugin {
                 const exportInfo = moduleScopeAnalyser.generateExportInfo(usedExports);
                 if (dep.request in exportInfo) {
                   const names = exportInfo[dep.request];
-                  if (names.indexOf(dep.id) >= 0) {
+                  if (names === true) {
+                    return depRef;
+                  } else if (names.indexOf(dep.id) >= 0) {
                     return depRef;
                   } else {
                     return null;
@@ -53,13 +58,14 @@ class WebpackDeepScopeAnalysisPlugin {
           }
 
           parser.hooks.program.tap(pluginName, (ast, comments) => {
-            const resourceName = parser.state.module.resource;
-            if (!this.moduleMap.has(resourceName)) {
-              const analyser = new ModuleAnalyser(resourceName, parser.state.module);
+            const { module } = parser.state;
+            const resourceName = module.resource;
+            if (!this.moduleMap.has(module)) {
+              const analyser = new ModuleAnalyser(resourceName, module);
               analyser.analyze(ast, {
                 comments,
               });
-              this.moduleMap.set(resourceName, analyser);
+              this.moduleMap.set(module, analyser);
             }
           });
         };
