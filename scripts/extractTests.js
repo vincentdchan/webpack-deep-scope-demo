@@ -6,7 +6,7 @@ const fixturesPath = path.join(
   '..',
   'webpack-deep-scope-analysis-plugin',
   'packages',
-  'deep-scope-analysis',
+  'deep-scope-analyser',
   'tests',
   'fixtures',
 );
