@@ -177,6 +177,35 @@ class App extends React.Component<{}, IAppState> {
     });
   }
 
+  private renderTable = ([name, arr]) => {
+    return {
+      key: name,
+      cells: [
+        {
+          content: <span>{name}</span>
+        },
+        {
+          content: this.renderItem(arr)
+        }
+      ],
+    }
+  };
+
+  private renderItem(item: any) {
+    if (item === true) {
+      return <span>true</span>
+    }
+    return (
+      <div>
+        {
+          item.map(item => (
+            <Tag text={item} key={item} />
+          ))
+        }
+      </div>
+    )
+  }
+
   private generateTable() {
     if (!this.moduleAnalyser) return null;
     const {
@@ -199,23 +228,7 @@ class App extends React.Component<{}, IAppState> {
               content: 'Variables',
             }]
           }}
-          rows={tableData.map(([name, arr]) => ({
-            key: name,
-            cells: [
-              {
-                content: <span>{name}</span>
-              },
-              {
-                content: <div>
-                {
-                  (arr as any[]).map(item => (
-                    <Tag text={item} key={item} />
-                  ))
-                }
-                </div>
-              }
-            ],
-          }))}
+          rows={tableData.map(this.renderTable)}
         />
       </TableContainer>
     );
